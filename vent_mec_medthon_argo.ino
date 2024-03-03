@@ -1,6 +1,6 @@
 /*
  * ------------------------------------------------------------------------------------------------------
- *  Arquivo : vent_mec_medthon_argo.ino
+ *  Arquivo : vent_mec_medthon_argo_v.ino
  *  Projeto : Ventilador mecânico para o Medthon
  * ------------------------------------------------------------------------------------------------------
  * Descrição: algorítmo utilizado pelo microcontrolador ESP32 para efetuar o controle total da respiração
@@ -9,6 +9,7 @@
  * Revisões : 
  *    Data        Versão  Autor           Descrição
  *    25/02/2024  1.0     Vitor Thompson  versão inicial
+ *    26/02/2024  1.1     Vitor Thompson  Retirada da pressão alvo de expiração
  * ------------------------------------------------------------------------------------------------------
  */
 
@@ -17,47 +18,17 @@
 #define PIN_INSPIRACAO 32 // Pino da válvula de inspiração
 #define PIN_PRESSAO    34 // Pino da saída do sensor de pressão
 
-// Parametros para controle das valvulas
-#define OPEN   1
-#define CLOSED 0
-
-// Parametros de pressão em centímetro de água [cmH2O]
-#define INS_PRESSAO_ALVO_CMH2O 8  // Pressao alvo no final da inspiração
-#define INS_PRESSAO_MAX_CMH2O  10 // Pressao máxima durante a inspiração, quando ultrapassada ativa a válvula de expiração imediatamente
-#define EXP_PRESSAO_ALVO_CMH2O 3  // Pressao alvo no final da expiração
-#define EXP_PRESSAO_MIN_CMH2O  1  // Pressao mínima durante a expiração, quando abaixo dela ativa-se a válvula de inspiração imediatamente
-
-/* DESCOMENTE E ESSA SECÇÃO E COMENTE A PRÓXIMA CASO QUEIRA CONFIGURAR OS VALORES ALVOS DE PRESSÃO UTILIZANDO  OS PARAMETROS EM [cmH2O]
- * 
-// Parametros de pressão, valores na escala do sensor, conversão de cmH2O para a escala do sensor
-#define INS_PRESSAO_ALVO ((((INS_PRESSAO_ALVO_CMH2O / 70.31) + 1.0) * 2.0) + 0.5) * ((1000.0 * 33.0) / 51.0) 
-#define INS_PRESSAO_MAX  ((((INS_PRESSAO_MAX_CMH2O / 70.31) + 1.0) * 2.0) + 0.5) * ((1000.0 * 33.0) / 51.0) 
-#define EXP_PRESSAO_ALVO ((((EXP_PRESSAO_ALVO_CMH2O / 70.31) + 1.0) * 2.0) + 0.5) * ((1000.0 * 33.0) / 51.0) 
-#define EXP_PRESSAO_MIN  ((((EXP_PRESSAO_MIN_CMH2O / 70.31) + 1.0) * 2.0) + 0.5) * ((1000.0 * 33.0) / 51.0) 
-*/
-
 // Parametros de pressão, valores na escala do sensor, sem realizar conversões
-#define INS_PRESSAO_ALVO 2500 // Pressao alvo no final da inspiração
-#define INS_PRESSAO_MAX  3800 // Pressao máxima durante a inspiração, quando ultrapassada ativa a válvula de expiração imediatamente
-#define EXP_PRESSAO_ALVO 1800 // Pressao alvo no final da expiração
-#define EXP_PRESSAO_MIN  1300 // Pressao mínima durante a expiração, quando abaixo dela ativa-se a válvula de inspiração imediatamente
+#define INS_PRESSAO_ALVO 2200 // Pressao alvo no final da inspiração
+#define INS_PRESSAO_MAX  3600 // Pressao máxima durante a inspiração, quando ultrapassada ativa a válvula de expiração imediatamente
+#define EXP_PRESSAO_MIN  1500 // Pressao mínima durante a expiração, quando abaixo dela ativa-se a válvula de inspiração imediatamente
 
 // Parametros de tempo
-#define RAZAO_I_E        1/3                               // razão entre o tempo gasto na inspiração versus o tempo gasto na expiração
+#define RAZAO_I_E        1/3                              // razão entre o tempo gasto na inspiração versus o tempo gasto na expiração
 #define CICLOS_POR_MIN   16                                // Quantidade de ciclos inpiração-expiração que são feitos em um minuto (normal: 14 a 20)
 #define PERIODO_CICLO    (60000 / CICLOS_POR_MIN)          // [ms]
 #define TEMPO_INSPIRACAO (PERIODO_CICLO * RAZAO_I_E)       // [ms]
 #define TEMPO_EXPIRACAO  (PERIODO_CICLO * (1 - RAZAO_I_E)) // [ms]
-
-// Porcentagem do tempo que as valvulas são ativadas (Duty Cycle)
-// PWM feito para não sobreaquecer as valvulas
-#define DUTY_CYCLE_MAX 205 // 205/256 = 0.8 (80%)
-#define FREQ_PWM 5000
-
-// Definem qual será o modo de acionamento das vávulas
-#define INS_PWM_OU_DIGITAL 1 // 1 para utilizar o PWM e 0 para utilizar o digital
-#define EXP_PWM_OU_DIGITAL 1 // 1 para utilizar o PWM e 0 para utilizar o digital
-
 
 void setup () {
   // Inicializa print serial
@@ -70,47 +41,6 @@ void setup () {
   pinMode(PIN_EXPIRACAO, OUTPUT);
   // Saida para controlar Solenoide de Inspiracao
   pinMode(PIN_INSPIRACAO, OUTPUT);
-
-  // Configuração dos padrões do PWM
-  analogWriteResolution(8);
-  analogWriteFrequency (FREQ_PWM);
-}
-
-/* 
- * Faz o acionamento da válvula especificada no parametro pin,
- * abre ou fecha ela de acordo com o valor do parametro val,
- * utiliza o pwm ou o acionamento digital de acordo com os valores
- * definidos pelas constrantes INS_PWM_OU_DIGITAL e EXP_PWM_OU_DIGITAL.
- */
-void writeValve (uint8_t pin, int val ) {
-  if (pin == PIN_INSPIRACAO) {
-    if (INS_PWM_OU_DIGITAL == 1) {
-      if (val == OPEN)
-        analogWrite(pin, DUTY_CYCLE_MAX);
-      else
-        analogWrite(pin, 0);
-    }
-    else {
-      if (val == OPEN)
-        digitalWrite(pin, HIGH);
-      else
-        digitalWrite(pin, LOW);
-    }
-  }
-  else {
-    if (EXP_PWM_OU_DIGITAL == 1) {
-      if (val == OPEN)
-        analogWrite(pin, DUTY_CYCLE_MAX);
-      else
-        analogWrite(pin, 0);
-    }
-    else {
-      if (val == OPEN)
-        digitalWrite(pin, HIGH);
-      else
-        digitalWrite(pin, LOW);
-    }
-  }
 }
 
 /*
@@ -122,16 +52,43 @@ void writeValve (uint8_t pin, int val ) {
 void Inspiracao (unsigned long timer) {
   float pressao = analogRead(PIN_PRESSAO);
 
-  // POSSÍVEL MODIFICAÇÃO: talvez no projeto a pressão seja atingida muito antes do tempo
-  // caso isso ocorrer, diminuir fluxo de ar ou retirar a dependencia do tempo
-  while (((millis() - timer) < TEMPO_INSPIRACAO) || (pressao < INS_PRESSAO_ALVO)) {
+  Serial.print(TEMPO_INSPIRACAO/1000.00);
+  Serial.print(" ");
+  Serial.print((millis() - timer)/1000.00);
+  Serial.print(" - INS - ");
+  Serial.println(pressao);
+
+  while ((millis() - timer) < TEMPO_INSPIRACAO) {
     pressao = analogRead(PIN_PRESSAO);
-    if (pressao < INS_PRESSAO_MAX) {
-      writeValve(PIN_INSPIRACAO, OPEN);
-      writeValve(PIN_EXPIRACAO , CLOSED);
+
+    Serial.print(TEMPO_INSPIRACAO/1000.00);
+    Serial.print(" ");
+    Serial.print((millis() - timer)/1000.00);
+    Serial.print(" - INS - ");
+    Serial.println(pressao);
+
+    while (pressao < INS_PRESSAO_ALVO) {
+      pressao = analogRead(PIN_PRESSAO);
+
+      Serial.print(TEMPO_INSPIRACAO/1000.00);
+      Serial.print(" ");
+      Serial.print((millis() - timer)/1000.00);
+      Serial.print(" - INS - ");
+      Serial.println(pressao);
+
+      if (pressao < INS_PRESSAO_MAX) {
+        digitalWrite(PIN_INSPIRACAO, HIGH);
+        digitalWrite(PIN_EXPIRACAO, LOW);
+      }
+      else
+        break;
     }
-    else
-      break;
+    if (pressao < INS_PRESSAO_MAX) {
+        digitalWrite(PIN_INSPIRACAO, LOW);
+        digitalWrite(PIN_EXPIRACAO, LOW);
+      }
+      else
+        break;
   }
 }
 
@@ -142,14 +99,20 @@ void Inspiracao (unsigned long timer) {
  * até que o tempo de expiração e a pressão alvo sejam ambos atingidos.
  */
 void Expiracao (unsigned long timer) {
-  float pressao = analogRead(PIN_PRESSAO);
+  float pressao;
 
-  // POSSÍVEL MODIFICAÇÃO: talvez no projeto a pressão seja atingida muito antes do tempo
-  // caso isso ocorrer, diminuir o duty cycle da válv. de exp. ou retirar a dependencia do tempo
-  while (((millis() - timer) < TEMPO_EXPIRACAO) || (pressao > EXP_PRESSAO_ALVO)) {
+  while (((millis() - timer) < TEMPO_EXPIRACAO)) {
+    pressao = analogRead(PIN_PRESSAO);
+
+    Serial.print(TEMPO_EXPIRACAO/1000.00);
+    Serial.print(" ");
+    Serial.print((millis() - timer)/1000.00);
+    Serial.print(" - EXP - ");
+    Serial.println(pressao);
+    
     if (pressao > EXP_PRESSAO_MIN) {
-      writeValve(PIN_INSPIRACAO, CLOSED);
-      writeValve(PIN_EXPIRACAO , OPEN);
+      digitalWrite(PIN_INSPIRACAO, LOW);
+      digitalWrite(PIN_EXPIRACAO, HIGH);
     }
     else
       break;
