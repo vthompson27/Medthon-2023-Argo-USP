@@ -9,8 +9,9 @@
  * Revisões : 
  *    Data        Versão  Autor           Descrição
  *    25/02/2024  1.0     Vitor Thompson  versão inicial
- *    25/02/2024  1.1     Vitor Thompson  Retirada da pressão alvo de expiração
- *    25/02/2024  1.2     Vitor Thompson  Adição da função espera e de médias da medição
+ *    26/02/2024  1.1     Vitor Thompson  Retirada da pressão alvo de expiração
+ *    26/02/2024  1.2     Vitor Thompson  Adição da função espera
+ *    26/02/2024  1.3     Vitor Thompson  Retirada da trava de seguraça da expiração 
  * ------------------------------------------------------------------------------------------------------
  */
 
@@ -21,7 +22,7 @@
 
 // Parametros de pressão, valores na escala do sensor, sem realizar conversões
 #define INS_PRESSAO_ALVO 2400 // Pressao alvo no final da inspiração
-#define INS_PRESSAO_MAX  2600 // Pressao máxima durante a inspiração, quando ultrapassada ativa a válvula de expiração imediatamente
+#define INS_PRESSAO_MAX  2800 // Pressao máxima durante a inspiração, quando ultrapassada ativa a válvula de expiração imediatamente
 #define EXP_PRESSAO_ALVO 1900 // Pressao alvo no final da expiração
 #define EXP_PRESSAO_MIN  1500 // Pressao mínima durante a expiração, quando abaixo dela ativa-se a válvula de inspiração imediatamente
 
@@ -61,10 +62,10 @@ unsigned long Inspiracao (unsigned long timer) {
 
   while (med_pressao < INS_PRESSAO_ALVO) {
     somatorio_pressao = 0;
-    for (int n = 1; n < 200; n++) {
+    for (int n = 1; n < 400; n++) {
       somatorio_pressao += analogRead(PIN_PRESSAO);
     }
-    med_pressao = somatorio_pressao/200;
+    med_pressao = somatorio_pressao/400.0;
 
     Serial.print(TEMPO_INSPIRACAO/1000.00);
     Serial.print(" ");
@@ -83,9 +84,7 @@ unsigned long Inspiracao (unsigned long timer) {
 }
 
 /*
- * Obtem a leitura do sensor de pressao, caso ela seja
- * menor que o limite mín. permitido imediatamente sai do loop.
- * Caso contrário fecha a válv. de inpiração e abre a de expiração
+ * Recebe o instante de tempo atual. Abre válvula de expiração
  * até que o tempo de expiração seja atingido.
  */
 void Expiracao (unsigned long timer) {
@@ -93,19 +92,15 @@ void Expiracao (unsigned long timer) {
 
   while (((millis() - timer) < TEMPO_EXPIRACAO)) {
     pressao = analogRead(PIN_PRESSAO);
-    
+
     Serial.print(TEMPO_EXPIRACAO/1000.00);
     Serial.print(" ");
     Serial.print((millis() - timer)/1000.00);
     Serial.print(" - EXP - ");
     Serial.println(pressao);
-    
-    if (pressao > EXP_PRESSAO_MIN) {
-      digitalWrite(PIN_INSPIRACAO, LOW);
-      digitalWrite(PIN_EXPIRACAO, HIGH);
-    }
-    else
-      break;
+
+    digitalWrite(PIN_INSPIRACAO, LOW);
+    digitalWrite(PIN_EXPIRACAO, HIGH);
   }
 }
 
@@ -121,7 +116,7 @@ void Espera (unsigned long timer) {
     float timerEspera = 0;
     while (timerEspera < (TEMPO_INSPIRACAO - timer)) {
       Serial.println(" - ESPERA - ");
-      
+
       digitalWrite(PIN_INSPIRACAO, LOW);
       digitalWrite(PIN_EXPIRACAO, LOW);
 
