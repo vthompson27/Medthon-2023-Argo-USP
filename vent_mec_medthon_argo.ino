@@ -1,6 +1,6 @@
 /*
  * ------------------------------------------------------------------------------------------------------
- *  Arquivo : vent_mec_medthon_argo_v.ino
+ *  Arquivo : vent_mec_medthon_argo.ino
  *  Projeto : Ventilador mecânico para o Medthon
  * ------------------------------------------------------------------------------------------------------
  * Descrição: algorítmo utilizado pelo microcontrolador ESP32 para efetuar o controle total da respiração
@@ -9,7 +9,8 @@
  * Revisões : 
  *    Data        Versão  Autor           Descrição
  *    25/02/2024  1.0     Vitor Thompson  versão inicial
- *    26/02/2024  1.1     Vitor Thompson  Retirada da pressão alvo de expiração
+ *    25/02/2024  1.1     Vitor Thompson  Retirada da pressão alvo de expiração
+ *    25/02/2024  1.2     Vitor Thompson  Adição da função espera e de médias da medição
  * ------------------------------------------------------------------------------------------------------
  */
 
@@ -19,12 +20,13 @@
 #define PIN_PRESSAO    34 // Pino da saída do sensor de pressão
 
 // Parametros de pressão, valores na escala do sensor, sem realizar conversões
-#define INS_PRESSAO_ALVO 2200 // Pressao alvo no final da inspiração
-#define INS_PRESSAO_MAX  3600 // Pressao máxima durante a inspiração, quando ultrapassada ativa a válvula de expiração imediatamente
+#define INS_PRESSAO_ALVO 2400 // Pressao alvo no final da inspiração
+#define INS_PRESSAO_MAX  2600 // Pressao máxima durante a inspiração, quando ultrapassada ativa a válvula de expiração imediatamente
+#define EXP_PRESSAO_ALVO 1900 // Pressao alvo no final da expiração
 #define EXP_PRESSAO_MIN  1500 // Pressao mínima durante a expiração, quando abaixo dela ativa-se a válvula de inspiração imediatamente
 
 // Parametros de tempo
-#define RAZAO_I_E        1/3                              // razão entre o tempo gasto na inspiração versus o tempo gasto na expiração
+#define RAZAO_I_E        1/3                               // razão entre o tempo gasto na inspiração versus o tempo gasto na expiração
 #define CICLOS_POR_MIN   16                                // Quantidade de ciclos inpiração-expiração que são feitos em um minuto (normal: 14 a 20)
 #define PERIODO_CICLO    (60000 / CICLOS_POR_MIN)          // [ms]
 #define TEMPO_INSPIRACAO (PERIODO_CICLO * RAZAO_I_E)       // [ms]
@@ -47,63 +49,51 @@ void setup () {
  * Obtem a leitura do sensor de pressao, caso ela seja
  * maior que o limite máx. permitido imediatamente sai do loop.
  * Caso contrário abre a válv. de inpiração e fecha a de expiração
- * até que o tempo de inspiração e a pressão alvo sejam ambos atingidos.
+ * até que a pressão alvo seja atingida. Ao final, retorna o valor 
+ * de quanto tempo de inspiração foi gasto na abertura da válvula.
  */
-void Inspiracao (unsigned long timer) {
-  float pressao = analogRead(PIN_PRESSAO);
+unsigned long Inspiracao (unsigned long timer) {
+  float somatorio_pressao;
+  for (int n = 1; n < 200; n++) {
+    somatorio_pressao += analogRead(PIN_PRESSAO);
+  }
+  float med_pressao = somatorio_pressao/200;
 
-  Serial.print(TEMPO_INSPIRACAO/1000.00);
-  Serial.print(" ");
-  Serial.print((millis() - timer)/1000.00);
-  Serial.print(" - INS - ");
-  Serial.println(pressao);
-
-  while ((millis() - timer) < TEMPO_INSPIRACAO) {
-    pressao = analogRead(PIN_PRESSAO);
+  while (med_pressao < INS_PRESSAO_ALVO) {
+    somatorio_pressao = 0;
+    for (int n = 1; n < 200; n++) {
+      somatorio_pressao += analogRead(PIN_PRESSAO);
+    }
+    med_pressao = somatorio_pressao/200;
 
     Serial.print(TEMPO_INSPIRACAO/1000.00);
     Serial.print(" ");
     Serial.print((millis() - timer)/1000.00);
     Serial.print(" - INS - ");
-    Serial.println(pressao);
+    Serial.println(med_pressao);
 
-    while (pressao < INS_PRESSAO_ALVO) {
-      pressao = analogRead(PIN_PRESSAO);
-
-      Serial.print(TEMPO_INSPIRACAO/1000.00);
-      Serial.print(" ");
-      Serial.print((millis() - timer)/1000.00);
-      Serial.print(" - INS - ");
-      Serial.println(pressao);
-
-      if (pressao < INS_PRESSAO_MAX) {
-        digitalWrite(PIN_INSPIRACAO, HIGH);
-        digitalWrite(PIN_EXPIRACAO, LOW);
-      }
-      else
-        break;
+    if (med_pressao < INS_PRESSAO_MAX) {
+      digitalWrite(PIN_INSPIRACAO, HIGH);
+      digitalWrite(PIN_EXPIRACAO, LOW);
     }
-    if (pressao < INS_PRESSAO_MAX) {
-        digitalWrite(PIN_INSPIRACAO, LOW);
-        digitalWrite(PIN_EXPIRACAO, LOW);
-      }
-      else
-        break;
+    else
+      break;
   }
+  return timer = millis() - timer;
 }
 
 /*
  * Obtem a leitura do sensor de pressao, caso ela seja
  * menor que o limite mín. permitido imediatamente sai do loop.
  * Caso contrário fecha a válv. de inpiração e abre a de expiração
- * até que o tempo de expiração e a pressão alvo sejam ambos atingidos.
+ * até que o tempo de expiração seja atingido.
  */
 void Expiracao (unsigned long timer) {
   float pressao;
 
   while (((millis() - timer) < TEMPO_EXPIRACAO)) {
     pressao = analogRead(PIN_PRESSAO);
-
+    
     Serial.print(TEMPO_EXPIRACAO/1000.00);
     Serial.print(" ");
     Serial.print((millis() - timer)/1000.00);
@@ -119,9 +109,31 @@ void Expiracao (unsigned long timer) {
   }
 }
 
+/*
+ * Recebe o quanto do tempo de inspiração foi gasto dentro da
+ * função de inspiração, caso o tempo for menor que o tempo de
+ * inspiração, realiza o fechamento de ambas as válvulas até que
+ * o tempo com as válvulas fechadas mais o tempo gasto para inspirar
+ * seja correspondente ao tempo de inspiração desejado.
+ */
+void Espera (unsigned long timer) {
+  if (timer < TEMPO_INSPIRACAO) {
+    float timerEspera = 0;
+    while (timerEspera < (TEMPO_INSPIRACAO - timer)) {
+      Serial.println(" - ESPERA - ");
+      
+      digitalWrite(PIN_INSPIRACAO, LOW);
+      digitalWrite(PIN_EXPIRACAO, LOW);
+
+      timerEspera = millis() - timer;
+    }
+  }
+}
+
 void loop () {
   unsigned long timer = millis();
-  Inspiracao(timer);
+  timer = Inspiracao(timer);
+  Espera(timer);
   timer = millis();
   Expiracao(timer);
 }
