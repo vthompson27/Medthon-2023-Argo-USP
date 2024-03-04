@@ -1,6 +1,6 @@
 /*
  * ------------------------------------------------------------------------------------------------------
- *  Arquivo : vent_mec_medthon_argo.ino
+ *  Arquivo : vent_mec_medthon_argo_v1.7.ino
  *  Projeto : Ventilador mecânico para o Medthon
  * ------------------------------------------------------------------------------------------------------
  * Descrição: algorítmo utilizado pelo microcontrolador ESP32 para efetuar o controle total da respiração
@@ -15,6 +15,7 @@
  *    27/02/2024  1.4     Laura Montenegro Conversao de cmH2O para escala do sensor
  *    27/02/2024  1.5     Leo Azevedo      Adição do Trigger
  *    27/02/2024  1.6     Vitor Thompson   Refatoração da função espera
+ *    28/02/2024  1.7     Vitor Thompson   Conserto da função espera
  * ------------------------------------------------------------------------------------------------------
  */
 
@@ -128,17 +129,16 @@ void Espera (unsigned long timer) {
 
   if (timer < TEMPO_INSPIRACAO) {
     float timerEspera = 0;
-    float delta = TEMPO_INSPIRACAO - timer;
 
-    while (timerEspera < (timer + delta)) {
+    while (timerEspera < (TEMPO_INSPIRACAO - timer)) {
       Serial.print(timerEspera);
       Serial.print(" - ESPERA - ");
-      Serial.println(timer + delta);
+      Serial.println(TEMPO_INSPIRACAO - timer);
 
       digitalWrite(PIN_INSPIRACAO, LOW);
       digitalWrite(PIN_EXPIRACAO, LOW);
 
-      timerEspera = (millis() - timer_aux) - timerEspera;
+      timerEspera = millis() - timer_aux;
     }
   }
 }
